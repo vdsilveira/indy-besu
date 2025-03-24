@@ -1,13 +1,7 @@
-/**
- * Copyright (c) 2024 DSR Corporation, Denver, Colorado.
- * https://www.dsr-corporation.com
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { AbiCoder, concat, getBytes, keccak256, Signature, solidityPacked, toUtf8Bytes, toUtf8String } from 'ethers'
+import { concat, getBytes, keccak256, Signature, toBigInt, toUtf8Bytes, toUtf8String } from 'ethers'
 import {
   RevocationRegistryDefinitionMetadataStruct,
-  RevocationRegistryEntryStruct,
+  RevocationRegistryEntryCreatedEvent,
 } from '../typechain-types/contracts/anoncreds/RevocationRegistry'
 import { Contract } from '../utils/contract'
 
@@ -63,15 +57,13 @@ export class RevocationRegistry extends Contract {
     identity: string,
     revRegId: string,
     issuerId: string,
-    prevAccumulator: string,
-    revRegEntry: RevocationRegistryEntryStruct,
+    revRegEntry: string,
   ) {
     const tx = await this.instance.createRevocationRegistryEntry(
       identity,
       keccak256(toUtf8Bytes(revRegId)),
       issuerId,
-      prevAccumulator,
-      revRegEntry,
+      toUtf8Bytes(revRegEntry),
     )
     return tx.wait()
   }
@@ -80,8 +72,7 @@ export class RevocationRegistry extends Contract {
     identity: string,
     revRegDefId: string,
     issuerId: string,
-    prevAccumulator: string,
-    revRegEntry: RevocationRegistryEntryStruct,
+    revRegEntry: string,
     signature: Signature,
   ) {
     const tx = await this.instance.createRevocationRegistryEntrySigned(
@@ -91,8 +82,7 @@ export class RevocationRegistry extends Contract {
       signature.s,
       keccak256(toUtf8Bytes(revRegDefId)),
       issuerId,
-      prevAccumulator,
-      revRegEntry,
+      toUtf8Bytes(revRegEntry),
     )
     return tx.wait()
   }
@@ -103,18 +93,42 @@ export class RevocationRegistry extends Contract {
       revRegDef: toUtf8String(getBytes(record.revRegDef)),
       metadata: {
         created: record.metadata.created,
-        issuerId: record.metadata.issuerId,
-        currentAccumulator: record.metadata.currentAccumulator,
       },
     }
   }
 
-  public async fetchAllRevocationEntries(id: string): Promise<RevocationRegistryEntryStruct[]> {
-    const eventLogs = await this.instance.queryFilter(
-      this.instance.filters.RevocationRegistryEntryCreated(keccak256(toUtf8Bytes(id))),
-    )
-    const revRegEntries = eventLogs.map((log) => log.args.revRegEntry.toObject(true))
-    return revRegEntries
+  public async fetchAllRevocationEntries(id: string): Promise<string[]> {
+    const latestBlock = await this.instance.getLastEventBlockNumber(keccak256(toUtf8Bytes(id)))
+    if (toBigInt(latestBlock) > 0n) {
+      const revRegEntries = await this.getLogsRecursively(id, latestBlock)
+      return revRegEntries
+    }
+    return []
+  }
+
+  private async getLogsRecursively(id: string, blockNum: bigint): Promise<string[]> {
+    let entries: string[] = []
+    if (blockNum.valueOf() > 0) {
+      const eventLogs = await this.instance.queryFilter(
+        this.instance.filters.RevocationRegistryEntryCreated(keccak256(toUtf8Bytes(id))),
+        blockNum,
+        blockNum,
+      )
+      entries = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
+        toUtf8String(getBytes((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[3])),
+      )
+      const parentBlocks: bigint[] = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
+        toBigInt((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[2]),
+      )
+
+      for (const parentBlock of parentBlocks) {
+        if (parentBlock > 0n) {
+          const parentEntries = await this.getLogsRecursively(id, parentBlock)
+          entries = entries.concat(parentEntries)
+        }
+      }
+    }
+    return entries
   }
 
   public signCreateRevRegDefEndorsementData(
@@ -143,11 +157,8 @@ export class RevocationRegistry extends Contract {
     privateKey: Uint8Array,
     revRegDefId: string,
     issuerId: string,
-    prevAccumulator: string,
-    revRegEntry: RevocationRegistryEntryStruct,
+    revRegEntry: string,
   ) {
-    const revRegEntrySolidityStruct = ['tuple(bytes,uint32[],uint32[])']
-
     return this.signEndorsementData(
       privateKey,
       concat([
@@ -155,8 +166,7 @@ export class RevocationRegistry extends Contract {
         toUtf8Bytes('createRevocationRegistryEntry'),
         getBytes(keccak256(toUtf8Bytes(revRegDefId)), 'hex'),
         toUtf8Bytes(issuerId),
-        getBytes(prevAccumulator),
-        getBytes(new AbiCoder().encode(revRegEntrySolidityStruct, [Object.values(revRegEntry)])),
+        getBytes(toUtf8Bytes(revRegEntry), 'hex'),
       ]),
     )
   }

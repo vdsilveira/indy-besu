@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { RevocationRegistryDefinitionRecord, RevocationRegistryEntry } from "./RevocationRegistryTypes.sol";
+import { RevocationRegistryDefinitionRecord } from "./RevocationRegistryTypes.sol";
 
 interface RevocationRegistryInterface {
     /**
@@ -17,12 +17,13 @@ interface RevocationRegistryInterface {
      *
      * @param revocationRegistryDefinitionId    Keccak hash of created revocation registry definition id
      * @param timestamp                         Timestamp of the created Revocation Registry Entry
-     * @param revRegEntry                       Struct containing new accumulator and list of newly issued/revoked credentials
+     * @param revRegEntry                       Revocation Registry Entry JSON as bytes
      */
     event RevocationRegistryEntryCreated(
         bytes32 indexed revocationRegistryDefinitionId,
         uint256 indexed timestamp,
-        RevocationRegistryEntry revRegEntry
+        uint parentBlockNumber,
+        bytes revRegEntry
     );
 
     /**
@@ -93,18 +94,23 @@ interface RevocationRegistryInterface {
         bytes calldata revRegDef
     ) external;
 
-    // /**
-    //  * @dev Resolve the Revocation Registry Definition associated with the given ID.
-    //  *
-    //  * If no matching Revocation Registry Definition is found, the function revert with `RevocationRegistryDefinitionNotFound` error
-    //  *
-    //  * @param id Keccak hash of the Revocation Registry Definition to be resolved.
-    //  *
-    //  * @return revocationRegistryDefinitionRecord Returns the Revocation Registry Definition with metadata.
-    //  */
+    /**
+     * @dev Resolve the Revocation Registry Definition associated with the given ID.
+     *
+     * If no matching Revocation Registry Definition is found, the function revert with `RevocationRegistryDefinitionNotFound` error
+     *
+     * @param id Keccak hash of the Revocation Registry Definition to be resolved.
+     *
+     * @return revocationRegistryDefinitionRecord Returns the Revocation Registry Definition with metadata.
+     */
     function resolveRevocationRegistryDefinition(
         bytes32 id
     ) external returns (RevocationRegistryDefinitionRecord memory revocationRegistryDefinitionRecord);
+
+    /**
+     * @dev get the last event block number (to get the event of the last revocation number)
+     */
+    function getLastEventBlockNumber(bytes32 id) external returns (uint);
 
     /**
      * @dev Creates a new Revocation Registry Entry (Delta).
@@ -128,15 +134,13 @@ interface RevocationRegistryInterface {
      * @param identity            Account address of Revocation Registry Definition issuer.
      * @param revRegDefId         Keccak hash of the associated Revocation Registry Id.
      * @param issuerId            DID of Revocation Registry Definition issuer.
-     * @param prevAccumulator     Previous accumulator for Revocation Registry for comparison.
-     * @param revRegEntry         Struct containing new accumulator, a list of issued and revoked credentials.
+     * @param revRegEntry         AnonCreds Revocation Registry Entry JSON as bytes.
      */
     function createRevocationRegistryEntry(
         address identity,
         bytes32 revRegDefId,
         string calldata issuerId,
-        bytes calldata prevAccumulator,
-        RevocationRegistryEntry calldata revRegEntry
+        bytes calldata revRegEntry
     ) external;
 
     /**
@@ -164,8 +168,7 @@ interface RevocationRegistryInterface {
      * @param sigS                Part of EcDSA signature.
      * @param revRegDefId         Keccak hash of the associated Revocation Registry Id.
      * @param issuerId            DID of Revocation Registry Definition issuer.
-     * @param prevAccumulator     Previous accumulator for Revocation Registry for comparison.
-     * @param revRegEntry         Struct containing new accumulator, a list of issued and revoked credentials.
+     * @param revRegEntry         AnonCreds Revocation Registry Entry JSON as bytes.
      */
     function createRevocationRegistryEntrySigned(
         address identity,
@@ -174,7 +177,6 @@ interface RevocationRegistryInterface {
         bytes32 sigS,
         bytes32 revRegDefId,
         string calldata issuerId,
-        bytes calldata prevAccumulator,
-        RevocationRegistryEntry calldata revRegEntry
+        bytes calldata revRegEntry
     ) external;
 }

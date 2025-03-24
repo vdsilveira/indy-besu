@@ -36,6 +36,28 @@ pub struct RevocationStatusList {
     pub timestamp: u64,
 }
 
+impl RevocationStatusList {
+        //TODO:
+        pub fn to_string(&self) -> VdrResult<String> {
+            serde_json::to_string(self).map_err(|err| {
+                VdrError::InvalidRevocationRegistryEntry(format!(
+                    "Unable to serialize Revocation RegistryE Entry as JSON. Err: {:?}",
+                    err
+                ))
+            })
+        }
+    
+        //TODO:
+        pub fn from_string(value: &str) -> VdrResult<RevocationStatusList> {
+            serde_json::from_str(value).map_err(|err| {
+                VdrError::InvalidRevocationRegistryEntry(format!(
+                    "Unable to parse Revocation Registry Entry from JSON. Err: {:?}",
+                    err.to_string()
+                ))
+            })
+        }
+}
+
 #[derive(PartialEq)]
 pub enum RevocationState {
     Active = 0,

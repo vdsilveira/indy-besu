@@ -175,7 +175,10 @@ impl ContractOutput {
     }
 
     fn get_item(&self, index: usize) -> VdrResult<ContractParam> {
-        self.0.get(index).cloned().ok_or_else(|| {
+        self
+            .0
+            .get(index)
+            .cloned().ok_or_else(|| {
             VdrError::ContractInvalidResponseData("Missing address value".to_string())
         })
     }
@@ -225,7 +228,6 @@ impl ContractEvent {
             .map(|uint| uint.as_u64())
     }
 
-    #[allow(unused)]
     pub fn get_tuple(&self, index: usize) -> VdrResult<ContractOutput> {
         self.get_item(index)?
             .into_tuple()

@@ -68,6 +68,15 @@ pub enum VdrError {
 
     #[error("Invalid DID document: {}", msg)]
     InvalidDidDocument { msg: String },
+    
+    #[error("Invalid Revocation Registry Definition: {}", msg)]
+    InvalidRevocationRegistryDefinition { msg: String },
+    
+    #[error("Invalid Revocation Registry Entry: {}", msg)]
+    InvalidRevocationRegistryEntry { msg: String },
+    
+    #[error("Invalid Revocation Registry Status List: {}", msg)]
+    InvalidRevocationRegistryStatusList { msg: String },
 }
 
 pub type VdrResult<T> = Result<T, VdrError>;
@@ -78,20 +87,20 @@ impl From<VdrError_> for VdrError {
             VdrError_::ClientNodeUnreachable => VdrError::ClientNodeUnreachable,
             VdrError_::ClientInvalidTransaction(msg) => VdrError::ClientInvalidTransaction { msg },
             VdrError_::ClientInvalidEndorsementData(msg) => {
-                VdrError::ClientInvalidEndorsementData { msg }
-            }
+                        VdrError::ClientInvalidEndorsementData { msg }
+                    }
             VdrError_::ClientInvalidResponse(msg) => VdrError::ClientInvalidResponse { msg },
             VdrError_::ClientTransactionReverted(msg) => {
-                VdrError::ClientTransactionReverted { msg }
-            }
+                        VdrError::ClientTransactionReverted { msg }
+                    }
             VdrError_::ClientUnexpectedError(msg) => VdrError::ClientUnexpectedError { msg },
             VdrError_::ClientInvalidState(msg) => VdrError::ClientInvalidState { msg },
             VdrError_::ContractInvalidName(msg) => VdrError::ContractInvalidName { msg },
             VdrError_::ContractInvalidSpec(msg) => VdrError::ContractInvalidSpec { msg },
             VdrError_::ContractInvalidInputData => VdrError::ContractInvalidInputData,
             VdrError_::ContractInvalidResponseData(msg) => {
-                VdrError::ContractInvalidResponseData { msg }
-            }
+                        VdrError::ContractInvalidResponseData { msg }
+                    }
             VdrError_::SignerInvalidPrivateKey => VdrError::SignerInvalidPrivateKey,
             VdrError_::SignerInvalidMessage => VdrError::SignerInvalidMessage,
             VdrError_::SignerMissingKey(msg) => VdrError::SignerMissingKey { msg },
@@ -101,11 +110,14 @@ impl From<VdrError_> for VdrError {
             VdrError_::GetTransactionError(msg) => VdrError::GetTransactionError { msg },
             VdrError_::InvalidSchema(msg) => VdrError::InvalidSchema { msg },
             VdrError_::InvalidCredentialDefinition(msg) => {
-                VdrError::InvalidCredentialDefinition { msg }
-            }
+                        VdrError::InvalidCredentialDefinition { msg }
+                    }
             VdrError_::InvalidDidDocument(msg) => {
-                VdrError::InvalidDidDocument { msg }
-            }
+                        VdrError::InvalidDidDocument { msg }
+                    }
+            VdrError_::InvalidRevocationRegistryDefinition(msg) => VdrError::InvalidRevocationRegistryDefinition { msg },
+            VdrError_::InvalidRevocationRegistryEntry(msg) => VdrError::InvalidRevocationRegistryEntry{ msg },
+            VdrError_::InvalidRevocationRegistryStatusList(msg) => VdrError::InvalidRevocationRegistryStatusList{ msg },
         }
     }
 }

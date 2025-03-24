@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { RevocationRegistryEntryStruct } from '../typechain-types/contracts/anoncreds/RevocationRegistry'
-
 export function createBaseDidDocument(did: string, key?: any) {
   const kid = `${did}#KEY-1`
   return JSON.stringify({
@@ -135,19 +133,24 @@ export function createRevocationRegistryDefinitionObject({
 }
 
 export interface CreateRevocationEntryParams {
+  revRegDefId: string
   currentAccumulator?: string
   issued?: number[]
   revoked?: number[]
 }
 
 export function createRevocationRegistryEntryObject({
+  revRegDefId,
   currentAccumulator = '0x10',
   issued = [0, 1],
   revoked = [],
-}: CreateRevocationEntryParams): RevocationRegistryEntryStruct {
+}: CreateRevocationEntryParams) {
   return {
-    currentAccumulator,
-    issued,
-    revoked,
+    revRegEntry: JSON.stringify({
+      revRegDefId,
+      currentAccumulator,
+      issued,
+      revoked,
+    }),
   }
 }

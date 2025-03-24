@@ -34,6 +34,7 @@ const CONTRACT_NAME: &str = "RevocationRegistry";
 const METHOD_CREATE_REVOCATION_REGISTRY_DEFINITION: &str = "createRevocationRegistryDefinition";
 const METHOD_CREATE_REVOCATION_REGISTRY_ENTRY: &str = "createRevocationRegistryEntry";
 const METHOD_RESOLVE_REVOCATION_REGISTRY_DEFINITION: &str = "resolveRevocationRegistryDefinition";
+const METHOD_GET_LAST_EVENT_BLOCK_NUMBER: &str = "getLastEventBlockNumber";
 const METHOD_CREATE_REVOCATION_REGISTRY_DEFINITION_SIGNED: &str =
     "createRevocationRegistryDefinitionSigned";
 const METHOD_CREATE_REVOCATION_REGISTRY_ENTRY_SIGNED: &str = "createRevocationRegistryEntrySigned";
@@ -102,12 +103,7 @@ pub async fn build_create_revocation_registry_entry_transaction(
         .add_param(&identity)?
         .add_param(&revocation_registry_entry.rev_reg_def_id)?
         .add_param(&revocation_registry_entry.issuer_id.without_network()?)?
-        .add_param(
-            &revocation_registry_entry
-                .rev_reg_entry_data
-                .prev_accumulator,
-        )?
-        .add_param(&revocation_registry_entry.rev_reg_entry_data)?
+        .add_param(revocation_registry_entry)?
         .set_type(TransactionType::Write)
         .set_from(from)
         .build(client)
@@ -174,12 +170,7 @@ pub async fn build_create_revocation_registry_entry_endorsing_data(
         .set_endorsing_method(METHOD_CREATE_REVOCATION_REGISTRY_ENTRY_SIGNED)
         .add_param(&revocation_registry_entry.rev_reg_def_id)?
         .add_param(&revocation_registry_entry.issuer_id.without_network()?)?
-        .add_param(
-            &revocation_registry_entry
-                .rev_reg_entry_data
-                .prev_accumulator,
-        )?
-        .add_param(&revocation_registry_entry.rev_reg_entry_data)?
+        .add_param(revocation_registry_entry)?
         .build(client)
         .await
 }
@@ -202,7 +193,31 @@ pub async fn build_resolve_revocation_registry_definition_transaction(
     TransactionBuilder::new()
         .set_contract(CONTRACT_NAME)
         .set_method(METHOD_RESOLVE_REVOCATION_REGISTRY_DEFINITION)
-        .add_param(id)?
+        .add_param(&id.without_network()?)?
+        .set_type(TransactionType::Read)
+        .build(client)
+        .await
+}
+
+/// Build a transaction to resolve the latest event block number by the given id
+///  (RevocationRegistry.resolveRevocationRegistryDefinition contract method)
+///
+/// # Params
+/// - `client`: [LedgerClient] - client connected to the network where contract will be executed
+/// - `id`: [RevocationRegistryId] - id of Revocation Registry to resolve
+///
+/// # Returns
+///   transaction: [Transaction] - prepared read transaction object to submit
+#[logfn(Info)]
+#[logfn_inputs(Debug)]
+pub async fn build_get_last_event_block_number_transaction(
+    client: &LedgerClient,
+    id: &RevocationRegistryDefinitionId,
+) -> VdrResult<Transaction> {
+    TransactionBuilder::new()
+        .set_contract(CONTRACT_NAME)
+        .set_method(METHOD_GET_LAST_EVENT_BLOCK_NUMBER)
+        .add_param(&id.without_network()?)?
         .set_type(TransactionType::Read)
         .build(client)
         .await
@@ -227,6 +242,27 @@ pub fn parse_resolve_revocation_registry_definition_result(
         .set_contract(CONTRACT_NAME)
         .set_method(METHOD_RESOLVE_REVOCATION_REGISTRY_DEFINITION)
         .parse::<RevocationRegistryDefinitionRecord>(client, bytes)
+}
+
+/// Parse the result of execution RevocationRegistry.resolveRevocationRegistryDefinition contract
+/// method to receive a Revocation Registry Definition associated with the id
+///
+/// # Params
+/// - `client`: [LedgerClient] - client connected to the network where contract will be executed
+/// - `bytes`: [Vec] - result bytes returned from the ledger
+///
+/// # Returns
+///   record: [RevocationRegistryDefinitionRecord] - parsed Revocation Registry Definition Record
+#[logfn(Info)]
+#[logfn_inputs(Debug)]
+pub fn parse_get_last_event_block_number_result(
+    client: &LedgerClient,
+    bytes: &[u8],
+) -> VdrResult<Block> {
+    TransactionParser::new()
+        .set_contract(CONTRACT_NAME)
+        .set_method(METHOD_GET_LAST_EVENT_BLOCK_NUMBER)
+        .parse::<Block>(client, bytes)
 }
 
 /// Single step function to resolve a Revocation Registry Definition for the given ID
@@ -270,6 +306,39 @@ pub async fn resolve_revocation_registry_definition(
     }
 
     Ok(rev_reg_def_record.revocation_registry_definition)
+}
+
+/// Single step function to resolve a Revocation Registry Definition last event block number.
+///
+/// # Params
+/// - `client`: [LedgerClient] - client connected to the network where contract will be executed
+/// - `id`: [RevocationRegistryId] - id of Revocation Registry Definition to resolve
+///
+/// # Returns
+///   block_number [Block] the block of the latest event
+pub async fn get_last_event_block_number(
+    client: &LedgerClient,
+    id: &RevocationRegistryDefinitionId,
+) -> VdrResult<Block> {
+    let parsed_id = ParsedRevocationRegistryDefinitionId::try_from(id)?;
+    match (parsed_id.network.as_ref(), client.network()) {
+        (Some(schema_network), Some(client_network)) if schema_network != client_network => {
+            return Err(VdrError::InvalidRevocationRegistryDefinition(format!("Network of request revocation registry definition id {} does not match to the client network {}", schema_network, client_network)));
+        }
+        _ => {}
+    };
+
+    let transaction = build_get_last_event_block_number_transaction(client, id).await?;
+    let response = client.submit_transaction(&transaction).await?;
+    if response.is_empty() {
+        return Err(VdrError::ClientInvalidResponse(format!(
+            "No block number found for regRevDefId: {:?}",
+            id
+        )));
+    }
+    let last_event_block = parse_get_last_event_block_number_result(client, &response)?;
+
+    Ok(last_event_block)
 }
 
 /// Single step function to resolve a Revocation Registry Status List for the given ID at a given
@@ -391,17 +460,20 @@ pub async fn fetch_revocation_delta(
         .last()
         .unwrap()
         .rev_reg_entry
+        .rev_reg_entry_data
         .current_accumulator
+        .as_ref()
+        .to_string()
         .clone();
 
     for rev_reg_entry in rev_reg_entries.into_iter() {
-        for issue in rev_reg_entry.rev_reg_entry.issued {
+        for issue in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.issued {
             issued.insert(issue);
 
             revoked.remove(&issue);
         }
 
-        for revocation in rev_reg_entry.rev_reg_entry.revoked {
+        for revocation in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.revoked {
             issued.remove(&revocation);
 
             revoked.insert(revocation);
@@ -481,12 +553,10 @@ fn build_latest_revocation_registry_entry_data(
         issued,
         revoked,
         current_accumulator: Accumulator::from(accumulator.as_str()),
-        prev_accumulator: Accumulator::from(
-            previous_delta
-                .as_ref()
-                .map_or(String::from("0x"), |prev_delta| prev_delta.accum.clone())
-                .as_str(),
-        ),
+        prev_accumulator: match previous_delta {
+            Some(previous_delta) => Some(Accumulator::from(previous_delta.accum.as_str())),
+            None => None,
+        },
     })
 }
 
@@ -544,16 +614,35 @@ async fn receive_revocation_registry_history(
 ) -> VdrResult<Vec<RevocationRegistryEvents>> {
     let mut history: Vec<RevocationRegistryEvents> = Vec::new();
 
-    let transaction =
-        build_get_revocation_registry_entry_events_query(client, rev_reg_def_id, None, None)
-            .await?;
-    let logs = client.query_events(&transaction).await?;
+    let latest_block = get_last_event_block_number(client, rev_reg_def_id)
+        .await
+        .unwrap();
 
-    // parse events
-    for log in logs {
-        let event = parse_revocation_registry_event_response(client, &log)?;
-        history.push(event);
+    let mut current_block = latest_block;
+
+    while !current_block.is_none() {
+        let transaction = build_get_revocation_registry_entry_events_query(
+            client,
+            rev_reg_def_id,
+            Some(&current_block),
+            Some(&current_block),
+        )
+        .await?;
+        let logs = client.query_events(&transaction).await?;
+
+        // parse events
+        for log in logs {
+            let event = parse_revocation_registry_event_response(client, &log)?;
+            current_block = match &event {
+                RevocationRegistryEvents::RevocationRegistryEntryCreatedEvent(inner_event) => {
+                    &inner_event.parent_block_number
+                }
+            }
+            .clone();
+            history.push(event);
+        }
     }
+
     Ok(history)
 }
 
@@ -642,7 +731,7 @@ pub mod test {
     use super::*;
     use crate::{
         client::client::test::{
-            client, mock_client, CONFIG, DEFAULT_NONCE, TEST_ACCOUNT, TRUSTEE_ACCOUNT,
+            mock_client, CONFIG, DEFAULT_NONCE, TEST_ACCOUNT, TRUSTEE_ACCOUNT,
         },
         contracts::did::types::{
             did::DID,
@@ -667,7 +756,6 @@ pub mod test {
         };
 
         use super::*;
-        use serde_json::Value;
 
         #[async_std::test]
         async fn build_create_revocation_registry_definition_transaction_test() {
@@ -704,7 +792,7 @@ pub mod test {
                     101, 50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54, 56, 49, 98, 98, 53, 100, 54,
                     97, 100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48, 48, 101, 57, 98, 50, 98, 53,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 209, 123, 34, 105, 115,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 208, 123, 34, 105, 115,
                     115, 117, 101, 114, 73, 100, 34, 58, 34, 100, 105, 100, 58, 101, 116, 104, 114,
                     58, 48, 120, 102, 48, 101, 50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54, 56,
                     49, 98, 98, 53, 100, 54, 97, 100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48, 48,
@@ -721,17 +809,17 @@ pub mod test {
                     105, 51, 116, 58, 49, 46, 48, 46, 48, 47, 100, 101, 102, 97, 117, 108, 116, 34,
                     44, 34, 116, 97, 103, 34, 58, 34, 116, 97, 103, 34, 44, 34, 118, 97, 108, 117,
                     101, 34, 58, 123, 34, 109, 97, 120, 67, 114, 101, 100, 78, 117, 109, 34, 58,
-                    54, 54, 54, 44, 34, 112, 117, 98, 108, 105, 99, 75, 101, 121, 115, 34, 58, 123,
-                    34, 97, 99, 99, 117, 109, 75, 101, 121, 34, 58, 123, 34, 122, 34, 58, 34, 49,
-                    32, 48, 66, 66, 46, 46, 46, 51, 56, 54, 34, 125, 125, 44, 34, 116, 97, 105,
-                    108, 115, 72, 97, 115, 104, 34, 58, 34, 57, 49, 122, 118, 113, 50, 99, 70, 109,
-                    66, 90, 109, 72, 67, 99, 76, 113, 70, 121, 122, 118, 55, 98, 102, 101, 104, 72,
-                    72, 53, 114, 77, 104, 100, 65, 71, 53, 119, 84, 106, 113, 121, 50, 80, 69, 34,
-                    44, 34, 116, 97, 105, 108, 115, 76, 111, 99, 97, 116, 105, 111, 110, 34, 58,
-                    34, 104, 116, 116, 112, 115, 58, 47, 47, 109, 121, 46, 114, 101, 118, 111, 99,
-                    97, 116, 105, 111, 110, 115, 46, 116, 97, 105, 108, 115, 47, 116, 97, 105, 108,
+                    50, 48, 44, 34, 112, 117, 98, 108, 105, 99, 75, 101, 121, 115, 34, 58, 123, 34,
+                    97, 99, 99, 117, 109, 75, 101, 121, 34, 58, 123, 34, 122, 34, 58, 34, 49, 32,
+                    48, 66, 66, 46, 46, 46, 51, 56, 54, 34, 125, 125, 44, 34, 116, 97, 105, 108,
+                    115, 72, 97, 115, 104, 34, 58, 34, 57, 49, 122, 118, 113, 50, 99, 70, 109, 66,
+                    90, 109, 72, 67, 99, 76, 113, 70, 121, 122, 118, 55, 98, 102, 101, 104, 72, 72,
+                    53, 114, 77, 104, 100, 65, 71, 53, 119, 84, 106, 113, 121, 50, 80, 69, 34, 44,
+                    34, 116, 97, 105, 108, 115, 76, 111, 99, 97, 116, 105, 111, 110, 34, 58, 34,
+                    104, 116, 116, 112, 115, 58, 47, 47, 109, 121, 46, 114, 101, 118, 111, 99, 97,
+                    116, 105, 111, 110, 115, 46, 116, 97, 105, 108, 115, 47, 116, 97, 105, 108,
                     115, 102, 105, 108, 101, 46, 116, 120, 116, 34, 125, 125, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
                 ],
                 signature: None,
                 hash: None,
@@ -745,6 +833,8 @@ pub mod test {
             let rev_reg_entry = revocation_registry_entry(
                 &DID::from(TEST_ETHR_DID_WITHOUT_NETWORK),
                 &&RevocationRegistryDefinitionId::from(REVOCATION_REGISTRY_DEFINITION_ID),
+                None,
+                None,
             );
             let transaction = build_create_revocation_registry_entry_transaction(
                 &client,
@@ -760,36 +850,39 @@ pub mod test {
                 nonce: Some(DEFAULT_NONCE.clone()),
                 chain_id: CONFIG.chain_id,
                 data: vec![
-                    169, 9, 112, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 226, 219, 108, 141,
-                    198, 198, 129, 187, 93, 106, 209, 33, 161, 7, 243, 0, 233, 178, 181, 165, 228,
-                    7, 74, 86, 110, 19, 20, 48, 146, 220, 87, 85, 67, 141, 24, 151, 19, 147, 167,
-                    9, 100, 136, 80, 1, 146, 59, 15, 146, 90, 38, 142, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 160, 0, 0, 0,
+                    238, 126, 104, 118, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 226, 219, 108,
+                    141, 198, 198, 129, 187, 93, 106, 209, 33, 161, 7, 243, 0, 233, 178, 181, 165,
+                    228, 7, 74, 86, 110, 19, 20, 48, 146, 220, 87, 85, 67, 141, 24, 151, 19, 147,
+                    167, 9, 100, 136, 80, 1, 146, 59, 15, 146, 90, 38, 142, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 1, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 51, 100, 105, 100, 58, 101, 116, 104,
-                    114, 58, 48, 120, 102, 48, 101, 50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54,
-                    56, 49, 98, 98, 53, 100, 54, 97, 100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48,
-                    48, 101, 57, 98, 50, 98, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 51, 100, 105, 100, 58, 101, 116, 104, 114, 58, 48,
+                    120, 102, 48, 101, 50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54, 56, 49, 98,
+                    98, 53, 100, 54, 97, 100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48, 48, 101, 57,
+                    98, 50, 98, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 97, 123,
+                    34, 114, 101, 118, 82, 101, 103, 68, 101, 102, 73, 100, 34, 58, 34, 100, 105,
+                    100, 58, 101, 116, 104, 114, 58, 48, 120, 102, 48, 101, 50, 100, 98, 54, 99,
+                    56, 100, 99, 54, 99, 54, 56, 49, 98, 98, 53, 100, 54, 97, 100, 49, 50, 49, 97,
+                    49, 48, 55, 102, 51, 48, 48, 101, 57, 98, 50, 98, 53, 47, 97, 110, 111, 110,
+                    99, 114, 101, 100, 115, 47, 118, 48, 47, 82, 69, 86, 95, 82, 69, 71, 95, 68,
+                    69, 70, 47, 100, 105, 100, 58, 101, 116, 104, 114, 58, 48, 120, 102, 48, 101,
+                    50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54, 56, 49, 98, 98, 53, 100, 54, 97,
+                    100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48, 48, 101, 57, 98, 50, 98, 53, 58,
+                    70, 49, 68, 67, 108, 97, 70, 69, 122, 105, 51, 116, 58, 49, 46, 48, 46, 48, 47,
+                    100, 101, 102, 97, 117, 108, 116, 47, 116, 97, 103, 34, 44, 34, 105, 115, 115,
+                    117, 101, 114, 73, 100, 34, 58, 34, 100, 105, 100, 58, 101, 116, 104, 114, 58,
+                    48, 120, 102, 48, 101, 50, 100, 98, 54, 99, 56, 100, 99, 54, 99, 54, 56, 49,
+                    98, 98, 53, 100, 54, 97, 100, 49, 50, 49, 97, 49, 48, 55, 102, 51, 48, 48, 101,
+                    57, 98, 50, 98, 53, 34, 44, 34, 114, 101, 118, 82, 101, 103, 69, 110, 116, 114,
+                    121, 68, 97, 116, 97, 34, 58, 123, 34, 99, 117, 114, 114, 101, 110, 116, 65,
+                    99, 99, 117, 109, 117, 108, 97, 116, 111, 114, 34, 58, 34, 99, 117, 114, 114,
+                    101, 110, 116, 65, 99, 99, 117, 109, 34, 44, 34, 112, 114, 101, 118, 65, 99,
+                    99, 117, 109, 117, 108, 97, 116, 111, 114, 34, 58, 110, 117, 108, 108, 44, 34,
+                    105, 115, 115, 117, 101, 100, 34, 58, 91, 93, 44, 34, 114, 101, 118, 111, 107,
+                    101, 100, 34, 58, 91, 48, 44, 49, 44, 50, 44, 51, 93, 125, 125, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 9, 112, 114, 101, 118, 65, 99, 99, 117, 109, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 96, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 160, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 1, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 99, 117, 114, 114, 101, 110, 116, 65, 99, 99,
-                    117, 109, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 ],
                 signature: None,
                 hash: None,
@@ -875,29 +968,37 @@ pub mod test {
     }
 
     //TODO:
-    // mod build_resolve_revocation_registry_events {
-    //     use crate::contracts::anoncreds::types::{
-    //         credential_definition::test::CREDENTIAL_DEFINITION_ID_WITHOUT_NETWORK,
-    //         revocation_registry_definition::test::{
-    //             revocation_registry_definition, REVOCATION_REGISTRY_DEFINITION_TAG,
-    //         },
-    //     };
-    //
-    //     use super::*;
-    //
-    //     #[async_std::test]
-    //     async fn receive_revocation_registry_history_test() {
-    //         let client = client();
-    //         // let rev_reg_def = revocation_registry_definition(
-    //         //     &DID::from(TEST_ETHR_DID_WITHOUT_NETWORK),
-    //         //     &&CredentialDefinitionId::from(CREDENTIAL_DEFINITION_ID_WITHOUT_NETWORK),
-    //         //     Some(REVOCATION_REGISTRY_DEFINITION_TAG),
-    //         // );
-    //         let rev_reg_def_id = RevocationRegistryDefinitionId::from("did:ethr:0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73/anoncreds/v0/REV_REG_DEF/did:ethr:0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73:schema-name:1.0/definition/revocation");
-    //         let logs = receive_revocation_registry_history(&client, &rev_reg_def_id).await;
-    //         assert!(logs.is_ok());
-    //
-    //         let logs = logs.unwrap();
-    //     }
-    // }
+    mod build_resolve_revocation_registry_events {
+        use crate::{
+            client::{client::test::mock_custom_client, MockClient},
+            contracts::anoncreds::types::{
+                credential_definition::test::CREDENTIAL_DEFINITION_ID_WITHOUT_NETWORK,
+                revocation_registry_definition::test::{
+                    revocation_registry_definition, REVOCATION_REGISTRY_DEFINITION_TAG,
+                },
+            },
+            CredentialDefinitionId,
+        };
+
+        use super::*;
+
+        #[async_std::test]
+        async fn receive_revocation_registry_history_test() {
+            let mut mock_client = MockClient::new();
+            mock_client.expect_query_events().returning(|_| {
+                Ok(vec![]) // empty logs for now
+            });
+            let client = mock_custom_client(Box::new(mock_client));
+            let rev_reg_def = revocation_registry_definition(
+                &DID::from(TEST_ETHR_DID_WITHOUT_NETWORK),
+                &&CredentialDefinitionId::from(CREDENTIAL_DEFINITION_ID_WITHOUT_NETWORK),
+                Some(REVOCATION_REGISTRY_DEFINITION_TAG),
+            );
+            let rev_reg_def_id = RevocationRegistryDefinitionId::from("did:ethr:0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73/anoncreds/v0/REV_REG_DEF/did:ethr:0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73:schema-name:1.0/definition/revocation");
+            let logs = receive_revocation_registry_history(&client, &rev_reg_def_id).await;
+            assert!(logs.is_ok());
+
+            // let logs = logs.unwrap();
+        }
+    }
 }

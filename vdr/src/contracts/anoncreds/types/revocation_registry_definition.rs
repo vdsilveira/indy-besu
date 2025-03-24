@@ -157,9 +157,6 @@ impl RevocationRegistryDefinition {
 #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct RevocationRegistryDefinitionMetadata {
     pub created: u64,
-    #[serde(rename = "issuerId")]
-    pub issuer_id: String,
-    pub current_accumulator: Vec<u8>,
 }
 
 impl TryFrom<&RevocationRegistryDefinition> for ContractParam {
@@ -190,12 +187,8 @@ impl TryFrom<ContractOutput> for RevocationRegistryDefinitionMetadata {
 
     fn try_from(value: ContractOutput) -> Result<Self, Self::Error> {
         let created = value.get_u128(0)?;
-        let issuer_id = value.get_string(1)?;
-        let current_accumulator = value.get_bytes(2)?;
         let cred_def_metadata = RevocationRegistryDefinitionMetadata {
             created: created as u64,
-            issuer_id,
-            current_accumulator,
         };
         Ok(cred_def_metadata)
     }
@@ -208,12 +201,12 @@ impl TryFrom<ContractOutput> for RevocationRegistryDefinitionRecord {
         let output_tuple = value.get_tuple(0)?;
         let revocation_registry_definition = RevocationRegistryDefinition::try_from(&output_tuple)?;
         let metadata = output_tuple.get_tuple(1)?;
-
-        let cred_def_with_metadata = RevocationRegistryDefinitionRecord {
+        
+        let rev_reg_def_with_metadata = RevocationRegistryDefinitionRecord {
             revocation_registry_definition,
             metadata: RevocationRegistryDefinitionMetadata::try_from(metadata)?,
         };
-        Ok(cred_def_with_metadata)
+        Ok(rev_reg_def_with_metadata)
     }
 }
 
@@ -244,7 +237,7 @@ pub mod test {
         };
         let public_keys = PublicKeys { accum_key };
         let value = RevocationRegistryDefinitionValue {
-            max_cred_num: 666,
+            max_cred_num: 20,
             public_keys,
             tails_location: String::from("https://my.revocations.tails/tailsfile.txt"),
             tails_hash: String::from("91zvq2cFmBZmHCcLqFyzv7bfehHH5rMhdAG5wTjqy2PE"),

@@ -37,15 +37,11 @@ pub async fn build_create_credential_definition_transaction(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn build_create_credential_definition_endorsing_data(
     client: &LedgerClient,
-    credential_definition: &str,
+    credential_definition: &CredentialDefinition,
 ) -> VdrResult<TransactionEndorsingData> {
-    let credential_definition =
-        serde_json::from_str(credential_definition).map_err(|err| VdrError::CommonInvalidData {
-            msg: format!("Unable to parse credential definition. Err: {:?}", err),
-        })?;
     credential_definition_registry::build_create_credential_definition_endorsing_data(
         &client.client,
-        &credential_definition,
+        &CredentialDefinition_::from(credential_definition),
     )
     .await
     .map(TransactionEndorsingData::from)

@@ -289,15 +289,14 @@ class CredentialDefinition(indy_besu_vdr.indy_besu_vdr.CredentialDefinition):
 class CredentialDefinitionRegistry:
     @staticmethod
     async def build_create_credential_definition_transaction(client: LedgerClient, _from: str,
-                                                             credential_definition: dict) -> "Transaction":
-        return Transaction.init(
-            await build_create_credential_definition_transaction(client, _from, json.dumps(credential_definition)))
+                                                             credential_definition: CredentialDefinition) -> "Transaction":
+        return Transaction.init(await build_create_credential_definition_transaction(client, _from, credential_definition))
 
     @staticmethod
     async def build_create_credential_definition_endorsing_data(client: LedgerClient,
-                                                                credential_definition: dict) -> "TransactionEndorsingData":
+                                                                credential_definition: CredentialDefinition) -> "TransactionEndorsingData":
         return TransactionEndorsingData.init(
-            await build_create_credential_definition_endorsing_data(client, json.dumps(credential_definition)))
+            await build_create_credential_definition_endorsing_data(client, credential_definition))
 
     @staticmethod
     async def build_resolve_credential_definition_transaction(client: LedgerClient, id: str) -> "Transaction":
@@ -308,8 +307,129 @@ class CredentialDefinitionRegistry:
         return parse_resolve_credential_definition_result(client, data)
 
     @staticmethod
-    async def resolve_credential_definition(client: LedgerClient, id: str) -> str:
-        return await resolve_credential_definition(client, id)
+    async def resolve_credential_definition(client: LedgerClient, id: str) -> CredentialDefinition:
+        return CredentialDefinition.init(await resolve_credential_definition(client, id))
+    
+class RevocationRegistryDefinition(indy_besu_vdr.indy_besu_vdr.RevocationRegistryDefinition):
+    def __init__(self, issuer_id: "str", revoc_def_type: "str", cred_def_id: "str", tag: "str", value: "JsonValue"):
+        self.issuer_id = issuer_id
+        self.revoc_def_type = revoc_def_type
+        self.cred_def_id = cred_def_id
+        self.tag = tag
+        self.value = value
+        super().__init__(issuer_id, revoc_def_type, cred_def_id, tag, value)
+
+    @property
+    def id(self) -> str:
+        return revocation_registry_definition_get_id(self)
+
+    @classmethod
+    def init(cls, revocation_registry: indy_besu_vdr.indy_besu_vdr.RevocationRegistryDefinition) -> "RevocationRegistryDefinition":
+        return RevocationRegistryDefinition(
+            revocation_registry.issuer_id,
+            revocation_registry.revoc_def_type,
+            revocation_registry.cred_def_id,
+            revocation_registry.tag,
+            revocation_registry.value,
+        )
+
+    def to_string(self) -> str:
+        return revocation_registry_definition_to_string(self)
+
+    @classmethod
+    def from_string(cls, value: str) -> "RevocationRegistryDefinition":
+        return RevocationRegistryDefinition.init(revocation_registry_definition_from_string(value))
+    
+class RevocationRegistryEntry(indy_besu_vdr.indy_besu_vdr.RevocationRegistryEntry):
+    def __init__(self, issuer_id: "str", rev_reg_def_id: "str", rev_reg_entry_data: "JsonValue"):
+        super().__init__(issuer_id, rev_reg_def_id, rev_reg_entry_data)
+        self.issuer_id = issuer_id
+        self.rev_reg_def_id = rev_reg_def_id
+        self.rev_reg_entry_data = rev_reg_entry_data
+
+    @classmethod
+    def init(cls, revocation_registry_entry: indy_besu_vdr.indy_besu_vdr.RevocationRegistryEntry) -> "RevocationRegistryEntry":
+        return RevocationRegistryEntry(
+            revocation_registry_entry.issuer_id,
+            revocation_registry_entry.rev_reg_def_id,
+            revocation_registry_entry.rev_reg_entry_data,
+        )
+
+    def to_string(self) -> str:
+        return revocation_registry_entry_to_string(self)
+
+    @classmethod
+    def from_string(cls, value: str) -> "RevocationRegistryEntry":
+        return RevocationRegistryEntry.init(revocation_registry_entry_from_string(value))
+    
+class RevocationStatusList(indy_besu_vdr.indy_besu_vdr.RevocationStatusList):
+    def __init__(self, issuer_id: "str", rev_reg_def_id: "str", timestamp: "int", revocation_list: "typing.List[int]", current_accumulator: "str"):
+        super().__init__(issuer_id, rev_reg_def_id, timestamp, revocation_list, current_accumulator)
+        self.issuer_id = issuer_id
+        self.rev_reg_def_id = rev_reg_def_id
+        self.timestamp = timestamp
+        self.revocation_list = revocation_list
+        self.current_accumulator = current_accumulator
+
+    @classmethod
+    def init(cls, revocation_status_list: indy_besu_vdr.indy_besu_vdr.RevocationStatusList) -> "RevocationStatusList":
+        return RevocationStatusList(
+            revocation_status_list.issuer_id,
+            revocation_status_list.rev_reg_def_id,
+            revocation_status_list.timestamp,
+            revocation_status_list.revocation_list,
+            revocation_status_list.current_accumulator,
+        )
+    
+    def to_string(self) -> str:
+        return revocation_status_list_to_string(self)
+    
+    @classmethod
+    def from_string(cls, value: str) -> "RevocationStatusList":
+        return RevocationStatusList.init(revocation_status_list_from_string(value)) 
+
+class RevocationRegistry:
+    @staticmethod
+    async def build_create_revocation_registry_definition_transaction(client: LedgerClient, _from: str,
+                                                                        revocation_registry_definition: RevocationRegistryDefinition) -> "Transaction":
+        return Transaction.init(await build_create_revocation_registry_definition_transaction(client, _from, revocation_registry_definition))
+
+    @staticmethod
+    async def build_create_revocation_registry_definition_endorsing_data(client: LedgerClient,
+                                                                            revocation_registry_definition: RevocationRegistryDefinition) -> "TransactionEndorsingData":
+        return TransactionEndorsingData.init(
+            await build_create_revocation_registry_definition_endorsing_data(client, revocation_registry_definition))
+
+    @staticmethod
+    async def resolve_revocation_registry_definition(client: LedgerClient, id: str) -> RevocationRegistryDefinition:
+        return RevocationRegistryDefinition.init(await resolve_revocation_registry_definition(client, id))
+
+    @staticmethod
+    async def build_resolve_revocation_registry_definition_transaction(client: LedgerClient, id: str) -> "Transaction":
+        return Transaction.init(await build_resolve_revocation_registry_definition_transaction(client, id))
+
+    @staticmethod
+    def parse_revocation_registry_definition(client: LedgerClient, data: bytes) -> dict:
+        return json.loads(parse_revocation_registry_definition(client, data))
+
+    @staticmethod
+    async def build_create_revocation_registry_entry_transaction(client: LedgerClient, _from: str,
+                                                                    revocation_registry_entry: RevocationRegistryEntry) -> "Transaction":
+        return Transaction.init(await build_create_revocation_registry_entry_transaction(client, _from, revocation_registry_entry))
+
+    @staticmethod
+    async def build_create_revocation_registry_entry_endorsing_data(client: LedgerClient,
+                                                                    revocation_registry_entry: RevocationRegistryEntry) -> "TransactionEndorsingData":
+        return TransactionEndorsingData.init(
+            await build_create_revocation_registry_entry_endorsing_data(client, revocation_registry_entry))
+
+    @staticmethod
+    async def resolve_revocation_registry_status_list(client: LedgerClient, id: str, timestamp: int) -> dict:
+        return json.loads(await resolve_revocation_registry_status_list(client, id, timestamp))
+
+    @staticmethod
+    async def resolve_revocation_registry_status_list_full(client: LedgerClient, id: str, timestamp: int) -> RevocationStatusList:
+        return RevocationStatusList.init(await resolve_revocation_registry_status_list_full(client, id, timestamp))
 
 
 class LegacyMapping:

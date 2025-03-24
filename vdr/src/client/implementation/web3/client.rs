@@ -9,15 +9,14 @@ use crate::{
     Address, Block, BlockDetails, Transaction,
 };
 
+use async_std::task;
 use async_trait::async_trait;
 use ethereum_types::{H160, U64};
 use log::{trace, warn};
 use log_derive::{logfn, logfn_inputs};
 use serde_json::json;
 use std::{
-    fmt::{Debug, Formatter},
-    str::FromStr,
-    time::Duration,
+    fmt::{Debug, Formatter}, str::FromStr, time::Duration
 };
 
 #[cfg(not(feature = "wasm"))]
@@ -103,6 +102,14 @@ impl Client for Web3Client {
                 NUMBER_TX_CONFIRMATIONS,
             )
             .await?;
+
+        // let tx_hash = self.client.eth().send_raw_transaction(Bytes::from(transaction)).await?;
+        // let receipt = loop {
+        //     if let Ok(Some(receipt)) = self.client.eth().transaction_receipt(tx_hash).await {
+        //         break receipt;
+        //     }
+        //     task::sleep(Duration::from_secs(1)).await;
+        // };
 
         if receipt.is_txn_reverted() {
             if let Some(revert_reason) = receipt.revert_reason {
@@ -206,7 +213,7 @@ impl Client for Web3Client {
             .eth()
             .logs(filter)
             .await
-            .map_err(|_| VdrError::GetTransactionError("Could not query events".to_string()))?;
+            .map_err(|e | VdrError::GetTransactionError(e.to_string()))?;
 
         let events: Vec<EventLog> = logs
             .into_iter()

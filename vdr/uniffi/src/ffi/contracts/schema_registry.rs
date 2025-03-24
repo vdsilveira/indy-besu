@@ -19,12 +19,9 @@ use std::collections::HashSet;
 pub async fn build_create_schema_transaction(
     client: &LedgerClient,
     from: &str,
-    schema: &str,
+    schema: &Schema,
 ) -> VdrResult<Transaction> {
-    let schema = serde_json::from_str(schema).map_err(|err| VdrError::CommonInvalidData {
-        msg: format!("Unable to parse credential definition. Err: {:?}", err),
-    })?;
-    schema_registry::build_create_schema_transaction(&client.client, &Address::from(from), &schema)
+    schema_registry::build_create_schema_transaction(&client.client, &Address::from(from), &Schema_::from(schema))
         .await
         .map(Transaction::from)
         .map_err(VdrError::from)

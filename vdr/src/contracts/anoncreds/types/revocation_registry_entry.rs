@@ -68,7 +68,7 @@ pub struct RevocationRegistryEntryData {
     #[serde(rename = "currentAccumulator")]
     pub current_accumulator: Accumulator,
     #[serde(rename = "prevAccumulator")]
-    pub prev_accumulator: Accumulator,
+    pub prev_accumulator: Option<Accumulator>,
     pub issued: Vec<u32>,
     pub revoked: Vec<u32>,
 }
@@ -78,7 +78,7 @@ impl RevocationRegistryEntry {
         rev_reg_def_id: RevocationRegistryDefinitionId,
         issuer_id: DID,
         current_accumulator: Accumulator,
-        prev_accumulator: Accumulator,
+        prev_accumulator: Option<Accumulator>,
         issued: Vec<u32>,
         revoked: Vec<u32>,
     ) -> RevocationRegistryEntry {
@@ -97,8 +97,10 @@ impl RevocationRegistryEntry {
     //TODO:
     pub(crate) fn validate(&self) -> VdrResult<()> {
         self.rev_reg_entry_data.current_accumulator.validate()?;
-        self.rev_reg_entry_data.prev_accumulator.validate()?;
-
+        match self.rev_reg_entry_data.prev_accumulator {
+            Some(ref prev_acc) => prev_acc.validate()?,
+            None => {}
+        };
         Ok(())
     }
 
@@ -123,27 +125,26 @@ impl RevocationRegistryEntry {
     }
 }
 
-impl TryFrom<&RevocationRegistryEntryData> for ContractParam {
+impl TryFrom<&Bytes> for RevocationRegistryEntry {
     type Error = VdrError;
 
-    fn try_from(value: &RevocationRegistryEntryData) -> Result<Self, Self::Error> {
-        Ok(ContractParam::Tuple(vec![
-            ContractParam::Bytes(Bytes::from(value.current_accumulator.as_bytes())),
-            ContractParam::Array(
-                value
-                    .issued
-                    .iter()
-                    .map(|&x| ContractParam::Uint(Uint::from(x)))
-                    .collect(),
-            ),
-            ContractParam::Array(
-                value
-                    .revoked
-                    .iter()
-                    .map(|&x| ContractParam::Uint(Uint::from(x)))
-                    .collect(),
-            ),
-        ]))
+    fn try_from(value: &Bytes) -> Result<Self, Self::Error> {
+        serde_json::from_slice(&value).map_err(|err| {
+            VdrError::InvalidRevocationRegistryEntry(format!(
+                "Unable to parse Revocation Registry Entry from the response. Err: {:?}",
+                err
+            ))
+        })
+    }
+}
+
+impl TryFrom<&RevocationRegistryEntry> for ContractParam {
+    type Error = VdrError;
+
+    fn try_from(value: &RevocationRegistryEntry) -> Result<Self, Self::Error> {
+        serde_json::to_vec(value)
+            .map(ContractParam::Bytes)
+            .map_err(|_| VdrError::ContractInvalidInputData)
     }
 }
 
@@ -152,23 +153,28 @@ impl TryFrom<&RevocationRegistryEntryData> for ContractParam {
 pub mod test {
     use super::*;
 
-    pub fn revocation_registry_entry_data() -> RevocationRegistryEntryData {
+    pub fn revocation_registry_entry_data(revoked_incices: Option<Vec<u32>>, accum: Option<&str>) -> RevocationRegistryEntryData {
         RevocationRegistryEntryData {
             current_accumulator: Accumulator::from("currentAccum"),
-            prev_accumulator: Accumulator::from("prevAccum"),
-            issued: vec![0, 1, 2, 3, 4],
-            revoked: vec![],
+            prev_accumulator: match accum {
+                Some(acc) => Some(Accumulator::from(acc)),
+                None => None,
+            },
+            issued: vec![],
+            revoked: revoked_incices.unwrap_or(vec![1, 2, 3]),
         }
     }
 
     pub fn revocation_registry_entry(
         issuer_id: &DID,
         rev_reg_def_id: &RevocationRegistryDefinitionId,
+        revoked_indices: Option<Vec<u32>>,
+        accum: Option<&str>,
     ) -> RevocationRegistryEntry {
         RevocationRegistryEntry {
             issuer_id: issuer_id.clone(),
             rev_reg_def_id: rev_reg_def_id.clone(),
-            rev_reg_entry_data: revocation_registry_entry_data(),
+            rev_reg_entry_data: revocation_registry_entry_data(revoked_indices, accum),
         }
     }
 }
