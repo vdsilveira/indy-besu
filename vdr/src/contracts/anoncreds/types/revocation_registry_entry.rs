@@ -69,8 +69,8 @@ pub struct RevocationRegistryEntryData {
     pub current_accumulator: Accumulator,
     #[serde(rename = "prevAccumulator")]
     pub prev_accumulator: Option<Accumulator>,
-    pub issued: Vec<u32>,
-    pub revoked: Vec<u32>,
+    pub issued: Option<Vec<u32>>,
+    pub revoked: Option<Vec<u32>>,
 }
 
 impl RevocationRegistryEntry {
@@ -79,8 +79,8 @@ impl RevocationRegistryEntry {
         issuer_id: DID,
         current_accumulator: Accumulator,
         prev_accumulator: Option<Accumulator>,
-        issued: Vec<u32>,
-        revoked: Vec<u32>,
+        issued: Option<Vec<u32>>,
+        revoked: Option<Vec<u32>>,
     ) -> RevocationRegistryEntry {
         RevocationRegistryEntry {
             rev_reg_def_id,
@@ -153,15 +153,15 @@ impl TryFrom<&RevocationRegistryEntry> for ContractParam {
 pub mod test {
     use super::*;
 
-    pub fn revocation_registry_entry_data(revoked_incices: Option<Vec<u32>>, accum: Option<&str>) -> RevocationRegistryEntryData {
+    pub fn revocation_registry_entry_data(revoked_incices: Option<Vec<u32>>, accum: Option<&str>, ) -> RevocationRegistryEntryData {
         RevocationRegistryEntryData {
             current_accumulator: Accumulator::from("currentAccum"),
             prev_accumulator: match accum {
                 Some(acc) => Some(Accumulator::from(acc)),
                 None => None,
             },
-            issued: vec![],
-            revoked: revoked_incices.unwrap_or(vec![1, 2, 3]),
+            issued: None,
+            revoked: revoked_incices,
         }
     }
 

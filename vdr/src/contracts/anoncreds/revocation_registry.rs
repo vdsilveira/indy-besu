@@ -101,7 +101,7 @@ pub async fn build_create_revocation_registry_entry_transaction(
         .set_contract(CONTRACT_NAME)
         .set_method(METHOD_CREATE_REVOCATION_REGISTRY_ENTRY)
         .add_param(&identity)?
-        .add_param(&revocation_registry_entry.rev_reg_def_id)?
+        .add_param(&revocation_registry_entry.rev_reg_def_id.without_network()?)?
         .add_param(&revocation_registry_entry.issuer_id.without_network()?)?
         .add_param(revocation_registry_entry)?
         .set_type(TransactionType::Write)
@@ -168,7 +168,7 @@ pub async fn build_create_revocation_registry_entry_endorsing_data(
         .set_identity(&identity)
         .set_method(METHOD_CREATE_REVOCATION_REGISTRY_ENTRY)
         .set_endorsing_method(METHOD_CREATE_REVOCATION_REGISTRY_ENTRY_SIGNED)
-        .add_param(&revocation_registry_entry.rev_reg_def_id)?
+        .add_param(&revocation_registry_entry.rev_reg_def_id.without_network()?)?
         .add_param(&revocation_registry_entry.issuer_id.without_network()?)?
         .add_param(revocation_registry_entry)?
         .build(client)
@@ -467,13 +467,13 @@ pub async fn fetch_revocation_delta(
         .clone();
 
     for rev_reg_entry in rev_reg_entries.into_iter() {
-        for issue in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.issued {
+        for issue in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.issued.unwrap_or(vec![]) {
             issued.insert(issue);
 
             revoked.remove(&issue);
         }
 
-        for revocation in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.revoked {
+        for revocation in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.revoked.unwrap_or(vec![]) {
             issued.remove(&revocation);
 
             revoked.insert(revocation);
@@ -550,8 +550,8 @@ fn build_latest_revocation_registry_entry_data(
     }
 
     Ok(RevocationRegistryEntryData {
-        issued,
-        revoked,
+        issued: Some(issued),
+        revoked: Some(revoked),
         current_accumulator: Accumulator::from(accumulator.as_str()),
         prev_accumulator: match previous_delta {
             Some(previous_delta) => Some(Accumulator::from(previous_delta.accum.as_str())),
@@ -668,7 +668,7 @@ async fn build_get_revocation_registry_entry_events_query(
         .set_contract(CONTRACT_NAME)
         .set_from_block(from_block.cloned())
         .set_to_block(to_block.cloned())
-        .set_event_filer(rev_reg_def_id.to_filter())
+        .set_event_filer(rev_reg_def_id.without_network().unwrap().to_filter())
         .build(client)
 }
 

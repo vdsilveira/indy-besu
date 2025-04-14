@@ -824,11 +824,11 @@ mod revocation_registry_entry {
 
         let mut status_list1 = vec![0; revocation_registry_definition.value.max_cred_num.try_into().unwrap()];
         let mut status_list2 = vec![0; revocation_registry_definition.value.max_cred_num.try_into().unwrap()];
-        for list1 in revocation_registry_entry1.rev_reg_entry_data.revoked.clone() {
+        for list1 in revocation_registry_entry1.rev_reg_entry_data.revoked.unwrap_or(vec![]).clone() {
             status_list1[list1 as usize] = 1;
             status_list2[list1 as usize] = 1;
         }
-        for list2 in revocation_registry_entry2.rev_reg_entry_data.revoked.clone() {
+        for list2 in revocation_registry_entry2.rev_reg_entry_data.revoked.unwrap_or(vec![]).clone() {
             status_list2[list2 as usize] = 1;
         }
         
