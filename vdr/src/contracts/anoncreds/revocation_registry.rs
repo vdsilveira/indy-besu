@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use chrono::Utc;
+use log::debug;
 use log_derive::{logfn, logfn_inputs};
 
 use crate::{
@@ -378,7 +379,7 @@ pub async fn resolve_revocation_registry_status_list(
         rev_reg_def_id: id.clone(),
         revocation_list,
         current_accumulator: delta.accum,
-        timestamp: to_timestamp,
+        timestamp: delta.timestamp,
     })
 }
 
@@ -466,6 +467,12 @@ pub async fn fetch_revocation_delta(
         .to_string()
         .clone();
 
+    let timestamp = rev_reg_entries
+        .last()
+        .unwrap()
+        .timestamp
+        .clone();
+
     for rev_reg_entry in rev_reg_entries.into_iter() {
         for issue in rev_reg_entry.rev_reg_entry.rev_reg_entry_data.issued.unwrap_or(vec![]) {
             issued.insert(issue);
@@ -489,6 +496,7 @@ pub async fn fetch_revocation_delta(
         revoked,
         issued,
         accum,
+        timestamp,
     }))
 }
 
@@ -570,6 +578,8 @@ fn build_latest_revocation_registry_entry_data(
 /// # Returns
 ///   rev_reg_entries: [Vec<RevRegEntryCreated>] - Revocation Registry Entries
 #[allow(irrefutable_let_patterns)]
+#[logfn(Trace)]
+#[logfn_inputs(Trace)]
 async fn fetch_revocation_registry_entries(
     client: &LedgerClient,
     id: &RevocationRegistryDefinitionId,
@@ -642,6 +652,8 @@ async fn receive_revocation_registry_history(
             history.push(event);
         }
     }
+
+    history.reverse();
 
     Ok(history)
 }

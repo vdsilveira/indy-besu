@@ -8,6 +8,7 @@ pub struct RevocationRegistryDelta {
     pub revoked: Vec<u32>,
     pub issued: Vec<u32>,
     pub accum: String,
+    pub timestamp: u64,
 }
 
 impl RevocationRegistryDelta {
