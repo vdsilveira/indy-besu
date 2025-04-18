@@ -5,9 +5,10 @@
 use indy_besu_vdr::{
     revocation_registry, AccumKey, Accumulator, Address, CredentialDefinitionId, PublicKeys,
     RegistryType, RevocationRegistryDefinition, RevocationRegistryDefinitionId,
-    RevocationRegistryDefinitionValue, RevocationRegistryDelta, RevocationRegistryEntry,
+    RevocationRegistryDefinitionValue, RevocationRegistryEntry,
     RevocationRegistryEntryData, RevocationState, RevocationStatusList, VdrResult, DID,
 };
+use serde_json::value;
 use std::borrow::Borrow;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -27,7 +28,7 @@ impl RevocationRegistry {
     pub async fn build_create_revocation_registry_definition_transaction(
         client: &LedgerClientWrapper,
         from: &str,
-        rev_reg_def: RevocationRegistryDefinitionWrapper,
+        rev_reg_def: &RevocationRegistryDefinitionWrapper,
     ) -> Result<TransactionWrapper> {
         let client = client.0.clone();
         let address = Address::from(from);
@@ -45,7 +46,7 @@ impl RevocationRegistry {
     #[wasm_bindgen(js_name = buildCreateRevocationRegistryDefinitionEndorsingData)]
     pub async fn build_create_revocation_registry_definition_endorsing_data(
         client: &LedgerClientWrapper,
-        rev_reg_def: RevocationRegistryDefinitionWrapper,
+        rev_reg_def: &RevocationRegistryDefinitionWrapper,
     ) -> Result<TransactionEndorsingDataWrapper> {
         revocation_registry::build_create_revocation_registry_definition_endorsing_data(
             &client.0,
@@ -61,7 +62,7 @@ impl RevocationRegistry {
     pub async fn build_create_revocation_registry_entry_transaction(
         client: &LedgerClientWrapper,
         from: &str,
-        rev_reg_entry: RevocationRegistryEntryWrapper,
+        rev_reg_entry: &RevocationRegistryEntryWrapper,
     ) -> Result<TransactionWrapper> {
         let client = client.0.clone();
         let address = Address::from(from);
@@ -79,7 +80,7 @@ impl RevocationRegistry {
     #[wasm_bindgen(js_name = buildCreateRevocationRegistryEntryEndorsingData)]
     pub async fn build_create_revocation_registry_entry_endorsing_data(
         client: &LedgerClientWrapper,
-        rev_reg_entry: RevocationRegistryEntryWrapper,
+        rev_reg_entry: &RevocationRegistryEntryWrapper,
     ) -> Result<TransactionEndorsingDataWrapper> {
         revocation_registry::build_create_revocation_registry_entry_endorsing_data(
             &client.0,
@@ -104,20 +105,6 @@ impl RevocationRegistry {
         .as_js()
         .map(TransactionWrapper::from)
         .map_err(JsValue::from)
-    }
-
-    #[wasm_bindgen(js_name = fetchRevocationDelta)]
-    pub async fn fetch_revocation_delta(
-        client: &LedgerClientWrapper,
-        id: &str,
-        to_timestamp: u64,
-    ) -> Result<RevocationRegistryDeltaWrapper> {
-        let id = RevocationRegistryDefinitionId::from(id);
-        revocation_registry::fetch_revocation_delta(&client.0, &id, to_timestamp)
-            .await
-            .as_js()
-            .map(RevocationRegistryDeltaWrapper::from)
-            .map_err(JsValue::from)
     }
 
     #[wasm_bindgen(js_name = parseResolveRevocationRegistryDefinitionResult)]
@@ -198,25 +185,17 @@ impl RevocationRegistryDefinitionWrapper {
         issuer_id: String,
         cred_def_id: String,
         tag: String,
-        max_cred_num: u32,
-        tails_hash: String,
-        tails_location: String,
-        z: String,
+        value: JsValue,
     ) -> RevocationRegistryDefinitionWrapper {
         //TODO: probably a better way to do this
-        let accum_key = AccumKey { z };
-        let public_keys = PublicKeys { accum_key };
+        // let accum_key = AccumKey { z };
+        // let public_keys = PublicKeys { accum_key };
         RevocationRegistryDefinitionWrapper(Rc::new(RevocationRegistryDefinition {
             issuer_id: DID::from(issuer_id.as_str()),
             cred_def_id: CredentialDefinitionId::from(cred_def_id.as_str()),
             revoc_def_type: RegistryType::CL_ACCUM,
             tag,
-            value: RevocationRegistryDefinitionValue {
-                max_cred_num,
-                tails_hash,
-                tails_location,
-                public_keys,
-            },
+            value: serde_wasm_bindgen::from_value(value).unwrap(),
         }))
     }
 
@@ -257,19 +236,22 @@ pub struct RevocationRegistryEntryWrapper(pub(crate) Rc<RevocationRegistryEntry>
 impl RevocationRegistryEntryWrapper {
     #[wasm_bindgen(constructor)]
     pub fn new(
-        rev_reg_def_id: String,
         issuer_id: String,
+        rev_reg_def_id: String,
         current_accumulator: String,
-        prev_accumulator: String,
-        issued: Vec<u32>,
-        revoked: Vec<u32>,
+        prev_accumulator: Option<String>,
+        issued: Option<Vec<u32>>,
+        revoked: Option<Vec<u32>>,
     ) -> RevocationRegistryEntryWrapper {
         RevocationRegistryEntryWrapper(Rc::new(RevocationRegistryEntry {
             rev_reg_def_id: RevocationRegistryDefinitionId::from(rev_reg_def_id.as_str()),
             issuer_id: DID::from(issuer_id.as_str()),
             rev_reg_entry_data: RevocationRegistryEntryData {
                 current_accumulator: Accumulator::from(current_accumulator.as_str()),
-                prev_accumulator: Accumulator::from(prev_accumulator.as_str()),
+                prev_accumulator: match prev_accumulator {
+                    Some(prev_accumulator) => Some(Accumulator::from(prev_accumulator.as_str())),
+                    None => None,
+                },
                 issued,
                 revoked,
             },
@@ -280,34 +262,16 @@ impl RevocationRegistryEntryWrapper {
     pub fn as_value(&self) -> Result<JsValue> {
         serde_wasm_bindgen::to_value(&*self.0).map_err(JsValue::from)
     }
+
+    #[wasm_bindgen(js_name = toString)]
+    pub fn to_string(&self) -> Result<String> {
+        self.0.to_string().as_js().map_err(JsValue::from)
+    }
 }
 
 impl From<RevocationRegistryEntry> for RevocationRegistryEntryWrapper {
     fn from(data: RevocationRegistryEntry) -> RevocationRegistryEntryWrapper {
         RevocationRegistryEntryWrapper(Rc::new(data))
-    }
-}
-
-#[wasm_bindgen(js_name = RevocationRegistryDelta)]
-pub struct RevocationRegistryDeltaWrapper(pub(crate) Rc<Option<RevocationRegistryDelta>>);
-
-#[wasm_bindgen(js_class = RevocationRegistryDelta)]
-impl RevocationRegistryDeltaWrapper {
-    #[wasm_bindgen(js_name = asValue)]
-    pub fn as_value(&self) -> Result<JsValue> {
-        match &self.0.borrow() {
-            Some(delta) => serde_wasm_bindgen::to_value(delta).map_err(JsValue::from),
-            None => Ok(JsValue::UNDEFINED),
-        }
-    }
-}
-
-impl From<Option<RevocationRegistryDelta>> for RevocationRegistryDeltaWrapper {
-    fn from(data: Option<RevocationRegistryDelta>) -> RevocationRegistryDeltaWrapper {
-        match data {
-            Some(value) => RevocationRegistryDeltaWrapper(Rc::new(Some(value))),
-            None => RevocationRegistryDeltaWrapper(Rc::new(None)),
-        }
     }
 }
 
@@ -319,6 +283,11 @@ impl RevocationRegistryStatusListWrapper {
     #[wasm_bindgen(js_name = asValue)]
     pub fn as_value(&self) -> Result<JsValue> {
         serde_wasm_bindgen::to_value(&*self.0).map_err(JsValue::from)
+    }
+
+    #[wasm_bindgen(js_name = toString)]
+    pub fn to_string(&self) -> Result<String> {
+        self.0.to_string().as_js().map_err(JsValue::from)
     }
 }
 
