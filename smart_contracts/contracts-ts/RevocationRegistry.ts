@@ -96,40 +96,58 @@ export class RevocationRegistry extends Contract {
       },
     }
   }
-
   public async fetchAllRevocationEntries(id: string): Promise<string[]> {
-    const latestBlock = await this.instance.getLastEventBlockNumber(keccak256(toUtf8Bytes(id)))
-    if (toBigInt(latestBlock) > 0n) {
-      const revRegEntries = await this.getLogsRecursively(id, latestBlock)
-      return revRegEntries
-    }
-    return []
+  const latestBlock = await this.instance.getLastEventBlockNumber(
+    keccak256(toUtf8Bytes(id))
+  );
+  if (toBigInt(latestBlock) > 0n) {
+   
+    const revRegEntries = await this.getLogsRecursively(
+      id,
+      Number(toBigInt(latestBlock))
+    );
+    return revRegEntries;
   }
+  return [];
+}
 
-  private async getLogsRecursively(id: string, blockNum: bigint): Promise<string[]> {
-    let entries: string[] = []
-    if (blockNum.valueOf() > 0) {
-      const eventLogs = await this.instance.queryFilter(
-        this.instance.filters.RevocationRegistryEntryCreated(keccak256(toUtf8Bytes(id))),
-        blockNum,
-        blockNum,
-      )
-      entries = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
-        toUtf8String(getBytes((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[3])),
-      )
-      const parentBlocks: bigint[] = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
-        toBigInt((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[2]),
-      )
+private async getLogsRecursively(id: string, blockNum: number): Promise<string[]> {
+  let entries: string[] = [];
 
-      for (const parentBlock of parentBlocks) {
-        if (parentBlock > 0n) {
-          const parentEntries = await this.getLogsRecursively(id, parentBlock)
-          entries = entries.concat(parentEntries)
-        }
+  if (blockNum > 0) {
+   
+   const latestBlock = await (this.signer?.provider ?? ethers.provider).getBlockNumber();
+    const fromToBlock = Math.min(blockNum, latestBlock);
+
+    const eventLogs = await this.instance.queryFilter(
+      this.instance.filters.RevocationRegistryEntryCreated(
+        keccak256(toUtf8Bytes(id))
+      ),
+      fromToBlock,
+      fromToBlock
+    );
+
+    entries = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
+      toUtf8String(
+        getBytes((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[3])
+      )
+    );
+
+    const parentBlocks: number[] = eventLogs.map((log: RevocationRegistryEntryCreatedEvent.Log) =>
+      Number(toBigInt((log.args as RevocationRegistryEntryCreatedEvent.InputTuple)[2]))
+    );
+
+    for (const parentBlock of parentBlocks) {
+      if (parentBlock > 0) {
+        const parentEntries = await this.getLogsRecursively(id, parentBlock);
+        entries = entries.concat(parentEntries);
       }
     }
-    return entries
   }
+
+  return entries;
+}
+
 
   public signCreateRevRegDefEndorsementData(
     identity: string,
