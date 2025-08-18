@@ -58,10 +58,10 @@ error CredentialDefinitionNotFound(bytes32 id);
 error AccumulatorMismatch(bytes accumulator);
 
 /**
- * @notice Error that occurs when attempting to perform an operation on Revocation Registries while not being the Revocation Registry Definition Iusser.
- * @param did   Issuer DID.
+ * @notice Error that occurs when attempting to perform an operation on Revocation Registries while not being the Revocation Registry Definition Issuer.
+ 
  */
-error NotRevocationRegistryDefinitionIssuer(string did);
+error NotRevocationRegistryDefinitionIssuer();
 
 /**
  * @notice Error that occurs when trying to create a revocation registry definition with already existing identifier.

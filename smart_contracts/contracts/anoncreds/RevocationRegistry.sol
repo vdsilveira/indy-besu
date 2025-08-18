@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import { UniversalDidResolverInterface } from "../did/UniversalDidResolverInterface.sol";
 import { ControlledUpgradeable } from "../upgrade/ControlledUpgradeable.sol";
 
-import { RevocationRegistryDefinitionRecord } from "./RevocationRegistryTypes.sol";
+import { RevocationRegistryDefinitionRecord,RevocationEntry,RevocationRegistryDefinitionInput } from "./RevocationRegistryTypes.sol";
 import { CredentialDefinitionRecord } from "./CredentialDefinitionTypes.sol";
 import { RevocationRegistryInterface } from "./RevocationRegistryInterface.sol";
 import { NotRevocationRegistryDefinitionIssuer, RevocationRegistryDefinitionAlreadyExist, RevocationRegistryDefinitionNotFound, AccumulatorMismatch } from "./AnoncredsErrors.sol";
@@ -32,12 +32,17 @@ contract RevocationRegistry is RevocationRegistryInterface, ControlledUpgradeabl
     mapping(bytes32 id => uint blockIdMaps) private _lastEventBlockNumbers;
 
     /**
+     * Mapping  actors that create the Revocation Registry Definition ID
+     */
+    mapping(address identity => address actor)private _revocationRegistryActors;
+
+    /**
      * Checks that the Credential Definition exist
      */
     modifier _credentialDefinitionExists(bytes32 id) {
         _credentialDefinitionRegistry.resolveCredentialDefinition(id);
         _;
-    }
+     }
 
     /**
      * Checks the uniqueness of the revocation registry definition ID
@@ -45,7 +50,7 @@ contract RevocationRegistry is RevocationRegistryInterface, ControlledUpgradeabl
     modifier _uniqueRevRegDefId(bytes32 id) {
         if (_revRegDefs[id].metadata.created != 0) revert RevocationRegistryDefinitionAlreadyExist(id);
         _;
-    }
+        }
 
     /**
      * Checks that the revocation registry definition exist
@@ -53,19 +58,27 @@ contract RevocationRegistry is RevocationRegistryInterface, ControlledUpgradeabl
     modifier _revRecDefExist(bytes32 id) {
         if (_revRegDefs[id].metadata.created == 0) revert RevocationRegistryDefinitionNotFound(id);
         _;
-    }
-
+        }
+    /**
+     * Checks that the provided actor is the original publisher of the Revocation Registry Definition
+     */
+    modifier _checkIssuer(address identity) {
+        if (_revocationRegistryActors[identity] != msg.sender) {
+            revert NotRevocationRegistryDefinitionIssuer();
+        }
+        _;
+        }
     function initialize(
         address upgradeControlAddress,
         address didResolverAddress,
         address credentialDefinitionRegistry,
         address roleControlContractAddress
-    ) public reinitializer(1) {
-        _initializeUpgradeControl(upgradeControlAddress);
-        _didResolver = UniversalDidResolverInterface(didResolverAddress);
-        _credentialDefinitionRegistry = CredentialDefinitionRegistryInterface(credentialDefinitionRegistry);
-        _roleControl = RoleControlInterface(roleControlContractAddress);
-    }
+        ) public reinitializer(1) {
+            _initializeUpgradeControl(upgradeControlAddress);
+            _didResolver = UniversalDidResolverInterface(didResolverAddress);
+            _credentialDefinitionRegistry = CredentialDefinitionRegistryInterface(credentialDefinitionRegistry);
+            _roleControl = RoleControlInterface(roleControlContractAddress);
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function createRevocationRegistryDefinition(
@@ -74,61 +87,70 @@ contract RevocationRegistry is RevocationRegistryInterface, ControlledUpgradeabl
         bytes32 credDefId,
         string calldata issuerId,
         bytes calldata revRegDef
-    ) external override {
-        _createRevocationRegistryDefinition(identity, msg.sender, id, credDefId, issuerId, revRegDef);
-    }
+        ) external override {
+            RevocationRegistryDefinitionInput memory data = RevocationRegistryDefinitionInput({
+                identity: identity,
+                actor: msg.sender,
+                id: id,
+                credDefId: credDefId
+            });
+             _revocationRegistryActors[identity]=msg.sender;
+             _createRevocationRegistryDefinition(data, issuerId, revRegDef);
+
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function createRevocationRegistryDefinitionSigned(
-        address identity,
-        uint8 sigV,
-        bytes32 sigR,
-        bytes32 sigS,
-        bytes32 id,
-        bytes32 credDefId,
-        string calldata issuerId,
-        bytes calldata revRegDef
-    ) public virtual {
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                bytes1(0x19),
-                bytes1(0),
-                address(this),
-                identity,
-                "createRevocationRegistryDefinition",
-                id,
-                credDefId,
-                issuerId,
-                revRegDef
-            )
-        );
-        _createRevocationRegistryDefinition(
-            identity,
-            ecrecover(hash, sigV, sigR, sigS),
-            id,
-            credDefId,
-            issuerId,
-            revRegDef
-        );
-    }
+            address identity,
+            uint8 sigV,
+            bytes32 sigR,
+            bytes32 sigS,
+            bytes32 id,
+            bytes32 credDefId,
+            string calldata issuerId,
+            bytes calldata revRegDef
+        ) public virtual {
+            bytes32 hash = keccak256(
+                abi.encodePacked(
+                    bytes1(0x19),
+                    bytes1(0),
+                    address(this),
+                    identity,
+                    "createRevocationRegistryDefinition",
+                    id,
+                    credDefId,
+                    issuerId,
+                    revRegDef
+                )
+            );
+
+            RevocationRegistryDefinitionInput memory data = RevocationRegistryDefinitionInput({
+                identity: identity,
+                actor: ecrecover(hash, sigV, sigR, sigS),
+                id: id,
+                credDefId: credDefId
+            });
+             _revocationRegistryActors[identity]=msg.sender;
+             _createRevocationRegistryDefinition(data, issuerId, revRegDef);
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function resolveRevocationRegistryDefinition(
         bytes32 id
-    )
-        public
-        view
-        override
-        _revRecDefExist(id)
-        returns (RevocationRegistryDefinitionRecord memory revocationRegistryDefinitionRecord)
-    {
-        return _revRegDefs[id];
-    }
+        )
+            public
+            view
+            override
+            _revRecDefExist(id)
+            returns (RevocationRegistryDefinitionRecord memory revocationRegistryDefinitionRecord)
+        {
+            return _revRegDefs[id];
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function getLastEventBlockNumber(bytes32 id) public view _revRecDefExist(id) returns (uint) {
-        return _lastEventBlockNumbers[id];
-    }
+            return _lastEventBlockNumbers[id];
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function createRevocationRegistryEntry(
@@ -136,74 +158,84 @@ contract RevocationRegistry is RevocationRegistryInterface, ControlledUpgradeabl
         bytes32 revRegDefId,
         string calldata issuerId,
         bytes calldata revRegEntry
-    ) external override {
-        _createRevocationRegistryEntry(identity, msg.sender, revRegDefId, issuerId, revRegEntry);
-    }
+        ) external override {
+            
+         _createRevocationRegistryEntry(RevocationEntry({
+            identity: identity,
+            actor: msg.sender,
+            revRegDefId: revRegDefId,
+            revRegEntry: revRegEntry}), 
+            issuerId
+            );
+        }
 
     /// @inheritdoc RevocationRegistryInterface
     function createRevocationRegistryEntrySigned(
-        address identity,
-        uint8 sigV,
-        bytes32 sigR,
-        bytes32 sigS,
-        bytes32 revRegDefId,
-        string calldata issuerId,
-        bytes calldata revRegEntry
-    ) public override {
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                bytes1(0x19),
-                bytes1(0),
-                address(this),
-                identity,
-                "createRevocationRegistryEntry",
-                revRegDefId,
-                issuerId,
-                revRegEntry
-            )
-        );
-        _createRevocationRegistryEntry(identity, ecrecover(hash, sigV, sigR, sigS), revRegDefId, issuerId, revRegEntry);
-    }
+                address identity,
+                uint8 sigV,
+                bytes32 sigR,
+                bytes32 sigS,
+                bytes32 revRegDefId,
+                string calldata issuerId,
+                bytes calldata revRegEntry
+            ) public override {
+                bytes32 hash = keccak256(
+                    abi.encodePacked(
+                        bytes1(0x19),
+                        bytes1(0),
+                        address(this),
+                        identity,
+                        "createRevocationRegistryEntry",
+                        revRegDefId,
+                        issuerId,
+                        revRegEntry
+                    )
+                );
+               
+                _createRevocationRegistryEntry(RevocationEntry({
+            identity: identity,
+            actor: ecrecover(hash, sigV, sigR, sigS),
+            revRegDefId: revRegDefId,
+            revRegEntry: revRegEntry}), 
+            issuerId
+            );
+        
+            }
 
     function _createRevocationRegistryDefinition(
-        address identity,
-        address actor,
-        bytes32 id,
-        bytes32 credDefId,
+        RevocationRegistryDefinitionInput memory data,
         string calldata issuerId,
         bytes calldata revRegDef
-    )
-        internal
-        _senderIsTrusteeOrEndorserOrSteward
-        _uniqueRevRegDefId(id)
-        _validIssuer(issuerId, identity, actor)
-        _credentialDefinitionExists(credDefId)
-    {
-        _revRegDefs[id].revRegDef = revRegDef;
-        _revRegDefs[id].metadata.created = block.timestamp;
-        _lastEventBlockNumbers[id] = 0;
+        )
+            internal
+            _senderIsTrusteeOrEndorserOrSteward
+            _uniqueRevRegDefId(data.id)
+            _validIssuer(issuerId, data.identity, data.actor)
+            _credentialDefinitionExists(data.credDefId)
+        {
+            _revRegDefs[data.id].revRegDef = revRegDef;
+            _revRegDefs[data.id].metadata.created = block.timestamp;
+            _lastEventBlockNumbers[data.id] = 0; 
+           
+            
+            
+            emit RevocationRegistryDefinitionCreated(data.id, data.identity);
+        }
 
-        emit RevocationRegistryDefinitionCreated(id, identity);
-    }
-
-    function _createRevocationRegistryEntry(
-        address identity,
-        address actor,
-        bytes32 revRegDefId,
-        string calldata issuerId,
-        bytes calldata revRegEntry
-    )
-        internal
-        _senderIsTrusteeOrEndorserOrSteward
-        _revRecDefExist(revRegDefId)
-        _validIssuer(issuerId, identity, actor)
+   function _createRevocationRegistryEntry(RevocationEntry memory data,string calldata issuerId)
+    internal
+    _senderIsTrusteeOrEndorserOrSteward
+    _revRecDefExist(data.revRegDefId)
+    _validIssuer(issuerId, data.identity, data.actor)
+    _checkIssuer(data.identity)
+    
     {
         emit RevocationRegistryEntryCreated(
-            revRegDefId,
+            data.revRegDefId,
             block.timestamp,
-            _lastEventBlockNumbers[revRegDefId],
-            revRegEntry
+            _lastEventBlockNumbers[data.revRegDefId],
+            data.revRegEntry
         );
-        _lastEventBlockNumbers[revRegDefId] = block.number;
+        _lastEventBlockNumbers[data.revRegDefId] = block.number;
     }
 }

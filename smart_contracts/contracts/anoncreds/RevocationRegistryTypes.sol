@@ -22,4 +22,19 @@ struct RevocationRegistryDefinitionRecord {
  */
 struct RevocationRegistryDefinitionMetadata {
     uint256 created;
+    
+}
+
+struct RevocationEntry {
+    address identity;
+    address actor;
+    bytes32 revRegDefId;
+    bytes revRegEntry;
+}
+
+struct RevocationRegistryDefinitionInput{
+    address identity;
+        address actor;
+        bytes32 id;
+        bytes32 credDefId;
 }

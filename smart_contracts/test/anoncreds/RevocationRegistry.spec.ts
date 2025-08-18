@@ -264,6 +264,34 @@ describe('RevocationRegistry', function () {
       expect(entries[0]).to.be.deep.equal(revRegEntry)
     })
 
+    it('Should fail if attempting to create Revocation Registry Entry while not being the Revocation Registry Definition Issuer', async function () {
+      const ethrIssuerId = `did:ethr:${issuerAddress}`
+      const { id, revRegDef } = await createRevocationRegistryDefinition(
+        revocationRegistry,
+        issuerAddress,
+        ethrIssuerId,
+        credDefId,
+      )
+
+      const { revRegEntry } = createRevocationRegistryEntryObject({
+        revRegDefId: id,
+        currentAccumulator: '0x20',
+        issued: [2, 3],
+        revoked: [0, 1],
+      })
+
+      const revocationRegistryFromTrustee2 = revocationRegistry.connect(testAccounts.trustee2.account)
+
+      await expect(
+        revocationRegistryFromTrustee2.createRevocationRegistryEntry(
+          testAccounts.trustee2.account.address,
+          id,
+          ethrIssuerId,
+          revRegEntry,
+        ),
+      ).to.be.revertedWithCustomError(revocationRegistry.baseInstance, DidErrors.NotIdentityOwner)
+    })
+
     it('Should fail if attempting to create Revocation Registry Entry for nonexistent RevRegDef', async function () {
       const ethrIssuerId = `did:ethr:${issuerAddress}`
       const id = 'invalid revRegDefId'
@@ -316,6 +344,48 @@ describe('RevocationRegistry', function () {
       const entries = await revocationRegistry.fetchAllRevocationEntries(id)
       expect(entries[0]).to.be.deep.equal(revocationRegistryEntry)
     })
+
+    it(
+      'Should fail to endorse a Revocation Registry Entry ' +
+        'without being the Issuer of the Revocation Record Definition',
+      async function () {
+        const { id } = await createRevocationRegistryDefinitionSigned(
+          revocationRegistry,
+          testActorAddress,
+          issuerIdSigned,
+          credDefIdSigned,
+        )
+
+        const revocationRegistryEntryParams: CreateRevocationEntryParams = {
+          revRegDefId: id,
+          currentAccumulator: '0x20',
+          issued: [2, 3],
+          revoked: [0, 1],
+        }
+
+        const { revRegEntry: revocationRegistryEntry } =
+          createRevocationRegistryEntryObject(revocationRegistryEntryParams)
+
+        const revRegEntrySignature = revocationRegistry.signCreateRevRegEntryEndorsementData(
+          testActorAddress,
+          testActorPrivateKey,
+          id,
+          issuerIdSigned,
+          revocationRegistryEntry,
+        )
+        const revocationRegistryFromTrustee2 = revocationRegistry.connect(testAccounts.trustee2.account)
+
+        await expect(
+          revocationRegistryFromTrustee2.createRevocationRegistryEntrySigned(
+            testActorAddress,
+            id,
+            issuerIdSigned,
+            revocationRegistryEntry,
+            revRegEntrySignature,
+          ),
+        ).to.be.revertedWithCustomError(revocationRegistry.baseInstance, ClErrors.NotRevocationRegistryDefinitionIssuer)
+      },
+    )
 
     it('Should fail if RevRegEntry is being endorsed with not owned Issuer DID', async function () {
       const { id } = await createRevocationRegistryDefinitionSigned(
